@@ -1,0 +1,8 @@
+# Neo4j 4
+CREATE CONSTRAINT n10s_unique_uri ON (r:Resource) 
+ASSERT r.uri IS UNIQUE 
+CREATE CONSTRAINT n10s_unique_id ON (r:Resource)
+ASSERT r.id IS UNIQUE
+
+# Neo4j 5
+CREATE CONSTRAINT IF NOT EXISTS FOR (n:Resource) REQUIRE (n.id, n.uri) IS UNIQUE;
