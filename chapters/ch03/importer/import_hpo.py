@@ -1,12 +1,24 @@
 import sys
+import logging
+
+from neo4j.exceptions import ClientError as Neo4jClientError
 
 from util.base_importer import BaseImporter
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(levelname)s - %(message)s',
+    datefmt='%H:%M:%S'
+)
+
+
 class HPOImporter(BaseImporter):
-    
+
     def __init__(self, argv):
         super().__init__(command=__file__, argv=argv)
         self._database = "hpo"
+        with self._driver.session() as session:
+            session.run(f"CREATE DATABASE {self._database} IF NOT EXISTS")
 
     def set_constraints(self):
         # TODO: must be updated in the book
@@ -16,7 +28,21 @@ class HPOImporter(BaseImporter):
                    "CREATE INDEX hpo_id FOR (n:Hpo) ON (n.id);"]
         with self._driver.session(database=self._database) as session:
             for q in queries:
-                session.run(q)
+                try:
+                    session.run(q)
+                except Neo4jClientError as e:
+                    # ignore if we already have the rule in place
+                    if e.code != "Neo.ClientError.Schema.EquivalentSchemaRuleAlreadyExists":
+                        raise e
+
+    def check_neo_semantics(self):
+        query = 'SHOW PROCEDURES YIELD name WHERE name ="n10s.graphconfig.init"'
+        with self._driver.session(database=self._database) as session:
+            r = session.run(query)
+            if len(r.data()) == 0:
+                raise RuntimeError(
+                    "Can not find `n10s.graphconfig.init`.Please make sure that Neosemantics is installed.\n"
+                    "https://neo4j.com/labs/neosemantics/installation/")
 
     def initialize_neo_semantics(self):
         queries = ["CALL n10s.graphconfig.init();",
@@ -26,7 +52,7 @@ class HPOImporter(BaseImporter):
         with self._driver.session(database=self._database) as session:
             for q in queries:
                 session.run(q)
-    
+
     def load_HPO_ontology(self):
         query = """
                 CALL n10s.rdf.import.fetch("http://purl.obolibrary.org/obo/hp.owl","RDF/XML"); 
@@ -43,7 +69,7 @@ class HPOImporter(BaseImporter):
                 """
         with self._driver.session(database=self._database) as session:
             session.run(query)
-    
+
     def create_disease_entities(self):
         query = """
                 LOAD CSV FROM 'https://github.com/obophenotype/human-phenotype-ontology/releases/latest/download/phenotype.hpoa' AS row 
@@ -53,10 +79,10 @@ class HPOImporter(BaseImporter):
                 MERGE (dis:Resource:Disease {id: row[0]}) 
                 ON CREATE SET dis.label = row[1]; 
                 """
-        
+
         with self._driver.session(database=self._database) as session:
             session.run(query)
-    
+
     def create_rels_features_diseases(self):
         query = """
                 LOAD CSV FROM 'https://github.com/obophenotype/human-phenotype-ontology/releases/latest/download/phenotype.hpoa' AS row 
@@ -69,7 +95,7 @@ class HPOImporter(BaseImporter):
                 WHERE phe.id = row[3]
                 MERGE (dis)-[:HAS_PHENOTYPIC_FEATURE]->(phe) 
                 """
-        
+
         with self._driver.session(database=self._database) as session:
             session.run(query)
 
@@ -96,10 +122,10 @@ class HPOImporter(BaseImporter):
                 FOREACH(ignoreMe IN CASE WHEN row[10] is not null THEN [1] ELSE [] END| 
                     SET rel.aspect = row[10])
                 """
-        
+
         with self._driver.session(database=self._database) as session:
             session.run(query)
-    
+
     def enrich_with_descriptive_properties(self):
         query = """
                 MATCH (dis:Disease)-[rel:HAS_PHENOTYPIC_FEATURE]->(phe:Hpo) 
@@ -133,17 +159,27 @@ class HPOImporter(BaseImporter):
                     WHEN rel.source STARTS with 'OMIM:' THEN 'https://omim.org/entry/' + apoc.text.replace(rel.source, '(.*)OMIM:', '') 
                 END 
                 """
-        
+
         with self._driver.session(database=self._database) as session:
             session.run(query)
 
+
 if __name__ == '__main__':
     importing = HPOImporter(argv=sys.argv[1:])
+    logging.info('Setting Constraints')
     importing.set_constraints()
+    logging.info('Initializing NeoSemantics')
+    importing.check_neo_semantics()
     importing.initialize_neo_semantics()
+    logging.info('Loading HPO Ontology')
     importing.load_HPO_ontology()
+    logging.info('Loading HPO Entities')
     importing.label_HPO_entities()
+    logging.info('Creating Disease Entities')
     importing.create_disease_entities()
+    logging.info('Creating Phenotype Relationships')
     importing.create_rels_features_diseases()
+    logging.info('Base Relationship Enriching')
     importing.add_base_properties_to_rels()
+    logging.info('Descriptive Relationship Enriching')
     importing.enrich_with_descriptive_properties()

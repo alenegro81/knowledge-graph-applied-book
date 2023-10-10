@@ -28,6 +28,3 @@ Run this command to use scispacy model to resolve diseases coming from different
 ```shell
 make reconciliate
 ```
-
-### Directory structure
-

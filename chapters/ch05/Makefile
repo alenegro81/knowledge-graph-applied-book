@@ -1,5 +1,5 @@
 PIP=../../venv/bin/pip
-PYTHON=python
+PYTHON=../../venv/bin/python
 
 init:
 	$(PIP) install -r requirements.lock
@@ -22,14 +22,14 @@ download:
 	mv "../../dataset/hmdd/misim/microRNA name.xls" ../../dataset/hmdd/misim/microRNA.xls
 
 import:
-	PYTHONPATH=../../ python importer/import_miRNA_hmdd.py
-	PYTHONPATH=../../ python importer/import_miRNA_dbDEMC.py
-	PYTHONPATH=../../ python importer/import_miRNA_miR2Disease.py
-	PYTHONPATH=../../ python importer/import_miRNA_EMBL.py
-	PYTHONPATH=../../ python importer/import_miRNA_RDB.py
-	PYTHONPATH=../../ python importer/import_miRNA_sim.py
+	PYTHONPATH=../../ $(PYTHON) importer/import_miRNA_hmdd.py
+	PYTHONPATH=../../ $(PYTHON) importer/import_miRNA_dbDEMC.py
+	PYTHONPATH=../../ $(PYTHON) importer/import_miRNA_miR2Disease.py
+	PYTHONPATH=../../ $(PYTHON) importer/import_miRNA_EMBL.py
+	PYTHONPATH=../../ $(PYTHON) importer/import_miRNA_RDB.py
+	PYTHONPATH=../../ $(PYTHON) importer/import_miRNA_sim.py
 
 reconciliate:
-	PYTHONPATH=../../ python reconciliation/reconciliate_disease.py
+	PYTHONPATH=../../ $(PYTHON) reconciliation/reconciliate_disease.py
 
 
