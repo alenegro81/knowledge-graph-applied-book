@@ -45,13 +45,19 @@ class HPOImporter(BaseImporter):
                     "https://neo4j.com/labs/neosemantics/installation/")
 
     def initialize_neo_semantics(self):
-        queries = ["CALL n10s.graphconfig.init();",
-                   "CALL n10s.graphconfig.set({ handleVocabUris: 'IGNORE' });",
-                   "CALL n10s.graphconfig.set({ applyNeo4jNaming: True });"]
-
+        # check if the RDF data is already imported
+        test_query = "MATCH (n:Resource) RETURN n"
         with self._driver.session(database=self._database) as session:
-            for q in queries:
-                session.run(q)
+            r = session.run(test_query)
+            if len(r.data()) == 0:
+                queries = ["CALL n10s.graphconfig.init();",
+                           "CALL n10s.graphconfig.set({ handleVocabUris: 'IGNORE' });",
+                           "CALL n10s.graphconfig.set({ applyNeo4jNaming: True });"]
+
+                with self._driver.session(database=self._database) as session:
+                    for q in queries:
+                        session.run(q)
+                       
 
     def load_HPO_ontology(self):
         query = """
