@@ -1,8 +1,8 @@
 PIP=../../venv/bin/pip
-PYTHON=python
+PYTHON=../../venv/bin/python
 
 init:
 	$(PIP) install -r requirements.lock
 
 import:
-	PYTHONPATH=../../ python importer/import_hpo.py
+	PYTHONPATH=../../ $(PYTHON) importer/import_hpo.py
