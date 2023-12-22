@@ -25,11 +25,3 @@ Run this command to execute the importer code for each dataset.
 make import
 ```
 
-#### Reconciliate diseases
-Run this command to use scispacy model to resolve diseases coming from different datasets
-```shell
-make reconciliate
-```
-
-### Directory structure
-
