@@ -1,0 +1,30 @@
+Given a prompt which represents a page from a diary of Warren Weaver (a.k.a. WW), identify all named entities and relations among them and output them in the JSON format, where each entity has unique integer ID, property `name` and possibly additional relevant properties. Relations refer to the entities using their IDs and can also have properties. The relations are directed.
+Top entities of interest: person, location, organization, date, occupation (a.k.a. person's work, specialization, research discipline, technology, interests etc.).
+Top relations of interest: "works for", "works with", "student of", "talked about", "talked with", "works on" (i.e. assignment of persons to their occupations).
+For "talked about" relations, classify sentiment (positive, neutral or negative).
+
+Note that persons are often first referenced by their full name, and then mentioned only by their surname or initials, for example: "A. N. Richards" becomes "Richards", "ANR", or just "R.".
+Note that organizations (universities, their departments) are often shortened, for example: "University of California" becomes "U. Cal.".
+Always output only entities with complete/full names.
+
+Example:
+###prompt: FBH
+Friday, Feb 19, 2023
+WW visits Dept. of Phys. at U. of PA, with Dean Jose Jewell, PhD.
+Dr. Peter Stafford (Prof.Phys.) shows his research on magnets he's conducting since August last year.
+WW has lunch with Prof. William Meade (Johns Hopkins). William discusses with him the proposed study of organic and anorganic reactions measured by calorimeter. He works on it with his former student, Dr. Andrews, who later phones WW. M. described Andrews as a very capable man, but he's not very impressed wih PS.
+During the latter part of the lunch, Professor J.W. Allen, lead nuclear physicist, comes in. A. works with radioisotopes produced by a high energy accelerator and mentions also PS and his research.
+(Copy EB)
+###output:
+{"entities":{"diary entry date":[{"id":0,"name":"Friday, February 19, 2023"}],
+"person":[{"id":1,"name":"WW","titles":[]},{"id":2,"name":"Jose Jewell","titles":["Dean", "PhD."]},{"id":3,"name":"Peter Stafford","titles":["Dr.","Professor of Physics"]},{"id":4,"name":"William Meade","titles":["Professor"]},{"id":5,"name":"Andrews","titles":["Doctor"]},{"id":6,"name":"J. W. Allen","titles":["Professor","lead nuclear physicist"]}],
+"organization":[{"id":7,"name":"Department of Physics, University of Pennsylvania"},{"id":8,"name":"Johns Hopkins University"}],
+"date":[{"id":9,"name":"August 2022"}],
+"occupation":[{"id":10,"name":"magnets","label":"occupation","type":"technology"},{"id":11,"name":"organic and anorganic reactions","label":"occupation","type":"chemistry discipline"},{"id":12,"name":"calorimeter","label":"occupation","type":"technology"},{"id":13,"name":"radioisotopes","type":"physics discipline"},{"id":14,"name":"high energy accelerator","type":"technology"}]},
+"relations":{"visits": [{"source":1,"target":7}],
+"talked with":[{"source":1,"target":2,"type":"on-site"},{"source":1,"target":3,"type":"on-site"},{"source":2,"target":3,"type":"on-site"},{"source":1,"target":4,"type":"lunch"},{"source":5,"target":1,"type":"phone call"},{"source":1,"target":6,"type":"lunch"},{"source":4,"target":6,"type":"lunch"}],
+"works for":[{"source":2,"target":7},{"source":3,"target":7},{"source":4,"target":8},{"source":5,"target":8},{"source":6,"target":8}],
+"works on":[{"source":3,"target":10,"since":"August 2022"},{"source":4,"target":11},{"source":4,"target":12},{"source":5,"target":11},{"source":5,"target":12},{"source":6,"target":13},{"source":6,"target":14}],
+"talked about":[{"source":4,"target":5,"sentiment":"positive"},{"source":4,"target":3,"sentiment":"negative"},{"source":6,"target":3,"sentiment":"neutral"}],
+"student of":[{"source":5,"target":4}],
+"works with":[{"source":4,"target":5}]}}
