@@ -1,4 +1,6 @@
 
+NEO4J_DB = "news"
+
 def enrich_wikidata():
     import time
     import json
@@ -64,8 +66,6 @@ def enrich_wikidata():
         GROUP BY ?org ?orgLabel ?desc
         """ % entity
 
-        # wd:Q5 = human
-
         URL = f"https://query.wikidata.org/bigdata/namespace/wdq/sparql?query={SPARQL}"
 
         try:
@@ -97,8 +97,9 @@ def enrich_wikidata():
     # Initialise Neo4j driver
     driver = GraphDatabase.driver('bolt://localhost:7687', auth=basic_auth('neo4j', 'neo'))
 
-    # Get entities to enrich
-    with driver.session() as session:
+    # Run enrichment
+    with driver.session(database=NEO4J_DB) as session:
+        # Get entities to enrich
         entities = session.run(QUERY_GET_INPUTS).data()
         print(f"Retrieved {len(entities)} entities")
 
@@ -122,18 +123,12 @@ def enrich_owned_by():
     import spacy
     from neo4j import GraphDatabase, basic_auth
 
-    QUERY_GET_INPUTS = """
-    USE news
-    MATCH (e:Organization)
+    QUERY_GET_INPUTS = """MATCH (e:Organization)
     WHERE EXISTS(e.wikidata_id)
     RETURN id(e) AS id, e.name AS name, e.wikidata_id AS wikidata_id
     """
 
-    QUERY_STORE_RESULTS = """
-    USE news
-    
-    UNWIND $inputs AS input
-    
+    QUERY_STORE_RESULTS = """UNWIND $inputs AS input
     MATCH (n)
     WHERE id(n) = input.id
 
@@ -221,7 +216,7 @@ def enrich_owned_by():
     driver = GraphDatabase.driver('bolt://localhost:7687', auth=basic_auth('neo4j', 'neo'))
 
     # Get entities to enrich
-    with driver.session() as session:
+    with driver.session(database=NEO4J_DB) as session:
         entities = session.run(QUERY_GET_INPUTS).data()
         print(f"Retrieved {len(entities)} entities")
 
@@ -243,5 +238,5 @@ if __name__ == "__main__":
 
     enrich_wikidata()
 
-    #enrich_owned_by()
+    enrich_owned_by()
 

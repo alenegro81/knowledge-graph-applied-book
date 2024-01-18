@@ -1,23 +1,21 @@
 import os
+import sys
 import time
 import json
-import openai
+from openai import OpenAI
 
-from neo4j import GraphDatabase, basic_auth
+from neo4j import GraphDatabase, Driver, basic_auth
 
 NEO4J_DB = "rac2"
-#DATA_PATH = "data/ch6_rac_ww_1932.json"
-DATA_PATH = "data/ch6_rac_ww_1939.json"
-PROMPT_PATH = "data/gpt_prompt.txt"
+DATA_PATH = "data/ch8_rac_ww_1939.json"
+PROMPT_PATH = "data/"
 
-# Azure OpenAI
-openai.api_key = "d28eb2ef49754a3796f970de6fb8809a"
-openai.api_type = "azure"
-openai.api_base = "https://ga-sandbox.openai.azure.com"
-openai.api_version = "2023-05-15"
+#OPENAI_MODEL = "gpt-3.5-turbo"
+OPENAI_MODEL = "gpt-4"
+OPENAI_API_KEY = "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"
 
 
-def create_indices():
+def create_indices(driver: Driver):
     with driver.session(database=NEO4J_DB) as session:
         # metagraph related
         session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (n:File) REQUIRE n.name IS NODE KEY")
@@ -36,7 +34,7 @@ def create_indices():
         session.run("CREATE TEXT INDEX rel_text_entities IF NOT EXISTS FOR ()-[r:RELATED_TO_ENTITY]-() ON (r.type)")
 
 
-def ingest_diaries(driver: GraphDatabase, path: str):
+def ingest_diaries(driver: Driver, path: str):
     QUERY_IMPORT = """MERGE (f:File {name: $file_name})
     MERGE (p:Page {id: $page_id})
     SET p.page_idx = $page_idx, p.text = $text
@@ -58,57 +56,28 @@ def ingest_diaries(driver: GraphDatabase, path: str):
 
 
 def read_prompt():
-    with open(PROMPT_PATH, 'r') as f:
-        prompt = f.read()
-    return prompt
+    prompt_segments = {}
+    with open(os.path.join(PROMPT_PATH, "gpt_prompt_task.txt"), 'r') as f:
+        prompt_segments['task'] = f.read()
+    with open(os.path.join(PROMPT_PATH, "gpt_prompt_example.txt"), 'r') as f:
+        prompt_segments['example'] = f.read()
+    with open(os.path.join(PROMPT_PATH, "gpt_prompt_example_output.txt"), 'r') as f:
+        prompt_segments['example_output'] = f.read()
+    return prompt_segments
 
 
-def openai_query(model, query):
+def openai_query(client, prompt_segments: dict, query: str):
+    messages = [{"role": "system", "content": prompt_segments['task']},
+                {"role": "user", "content": prompt_segments['example']},
+                {"role": "assistant", "content": prompt_segments['example_output']},
+                {"role": "user", "content": query}
+                ]
     t_start = time.time()
-    response = openai.Completion.create(engine=model, prompt=query, temperature=0., max_tokens=2000,
-                                        frequency_penalty=0.0, presence_penalty=0.0 #, best_of=3
-                                        )
-    #print(response['choices'][0]['text'])
-    print(f"\nTime: {round(time.time() - t_start, 1)} sec")
-    return response['choices'][0]['text']
+    response = client.chat.completions.create(model=OPENAI_MODEL, messages=messages, temperature=0., max_tokens=2000)
+    print(response.choices[0].message.content)
+    print(f"\nTime: {round(time.time() - t_start, 1)} sec\n")
 
-
-def openai_query_azure(model, query):
-    t_start = time.time()
-    response = openai.Completion.create(deployment_id=model, prompt=query, temperature=0., max_tokens=2000)
-                                        #top_p=1.0, frequency_penalty=0.0, presence_penalty=0.0 #, best_of=3
-                                        #)
-    #print(response['choices'][0]['text'])
-    print(f"Time: {round(time.time() - t_start, 1)} sec")
-    return response['choices'][0]['text']
-
-
-def parse_gpt_output_array(output: str) -> dict:
-    ### for parsing arrays - deprecated - DELETE !
-    rels, failed = list(), list()
-    for line in output.split("\n"):
-        if len(line.strip()) == 0:
-            continue
-        try:
-            rel = json.loads(line)
-            if len(rel) == 5:
-                rels.append(rel)
-            else:
-                print(f"ERROR: incorrect relation format: {rel}")
-                failed.append(line)
-        except Exception as e:
-            print(f"ERROR: line `{line}` could not be parsed: {str(e)}") ### TO DO !!!!!!!!!
-            failed.append(line)
-
-    # normalise entity and relation class names
-    for rel in rels:
-        rel[0] = " ".join(rel[0].split()) # remove multiple empty spaces
-        rel[1] = " ".join(rel[1].split()) # remove multiple empty spaces
-        for index in [1, 4]:
-            rel[index] = "".join([x.capitalize() for x in rel[index].split(" ")])
-        rel[2] = "_".join([x.upper() for x in rel[2].split(" ")])
-
-    return {'relations': rels, 'failed_relations': failed}
+    return response.choices[0].message.content
 
 
 def parse_gpt_output(output: str) -> dict:
@@ -139,7 +108,7 @@ def parse_gpt_output(output: str) -> dict:
     return {'entities': ents, 'relations': rels, 'failed': failed}
 
 
-def store_to_neo4j(driver: GraphDatabase, doc_id: int, entities: list, relations: list, run: str):
+def store_to_neo4j(driver: Driver, doc_id: int, entities: list, relations: list, run: str):
     QUERY_WRITE_ENTS = """
     MATCH (n)
     WHERE id(n) = $id
@@ -201,7 +170,12 @@ def store_to_neo4j(driver: GraphDatabase, doc_id: int, entities: list, relations
         session.run(QUERY_WRITE_RELS, id=doc_id, relations=relations, run=run)
 
 
-def process_diaries_gpt(driver: GraphDatabase, query_read: str, gpt_prompt: str, n_docs: int=100, run: str="run 1"):
+def process_diaries_gpt(driver: Driver, query_read: str, gpt_prompt_segments: dict, n_docs: int=100, run: str= "run 1"):
+    client = OpenAI(
+        api_key=OPENAI_API_KEY
+        #api_key=os.environ['OPENAI_API_KEY']
+    )
+
     print("Reading pages")
     with driver.session(database=NEO4J_DB) as session:
         res = session.run(query_read, limit=n_docs)
@@ -212,8 +186,7 @@ def process_diaries_gpt(driver: GraphDatabase, query_read: str, gpt_prompt: str,
     failed_pages = list()
     for p in pages:
         print(f"Processing page {p['id']}")
-        prompt = gpt_prompt + "\n\n###prompt: {0}\n###output:\n".format(p['text'])
-        output = openai_query_azure("text-davinci-003", prompt)
+        output = openai_query(client, gpt_prompt_segments, p['text'])
         gpt_parsed = parse_gpt_output(output)
         if gpt_parsed['failed']:
             failed_pages.append(p)
@@ -224,19 +197,19 @@ def process_diaries_gpt(driver: GraphDatabase, query_read: str, gpt_prompt: str,
     print(f"\n=== Finished processing {len(pages)} pages, {len(failed_pages)} pages had output format issue")
     if len(failed_pages) == 0:
         return
+
     print("Rerunning pages with failures ...")
 
     for p in failed_pages:
         print(f"Processing page {p['id']}")
-        prompt = gpt_prompt + "\n\n###prompt: {0}\n###output:\n".format(p['text'])
-        output = openai_query_azure("text-davinci-003", prompt)
+        output = openai_query(client, gpt_prompt_segments, p['text'])
         gpt_parsed = parse_gpt_output(output)
         # even if some relations have incorrect format again, store at least the good ones this time
         print(f"Storing {len(gpt_parsed['entities'])} entities and {len(gpt_parsed['relations'])} relations from page {p['id']} to Neo4j")
         store_to_neo4j(driver, p['id'], gpt_parsed['entities'], gpt_parsed['relations'], run)
 
 
-def cleanse_stability_test(driver: GraphDatabase, keep_run: str):
+def cleanse_stability_test(driver: Driver, keep_run: str):
     CLEANSING_QUERIES = ["""MATCH (p:GPTProcessed)-[r:MENTIONS_ENTITY]->(e)
     WHERE NOT $keep_run IN r.runs
     DETACH DELETE e
@@ -250,7 +223,7 @@ def cleanse_stability_test(driver: GraphDatabase, keep_run: str):
             session.run(query, keep_run=keep_run)
 
 
-def normalize_entities(driver: GraphDatabase):
+def normalize_entities(driver: Driver):
     # Cleanse person names: sometimes, title/degree of a person is identified as part of person name - strip them
     REMOVE_TITLES = ["dr.", "prof.", "dean", "president", "pres.", "sir", "mr.", "mrs."]
     QUERY_NORM_PERSONS = """
@@ -271,7 +244,7 @@ def normalize_entities(driver: GraphDatabase):
         session.run(QUERY_NORM_OCCUPATIONS)
 
 
-def resolve_entities(driver: GraphDatabase):
+def resolve_entities(driver: Driver):
     ### ER of Persons
     #   - update properties `name_normalized` so that in the KG creation step, the resolved entities get merged
 
@@ -376,7 +349,7 @@ def resolve_entities(driver: GraphDatabase):
         session.run(QUERY_RESOLVE_PER)
 
 
-def create_kg(driver: GraphDatabase):
+def create_kg(driver: Driver):
     # Reset the KG
     QUERY_DELETE_KG = """MATCH (n) 
     WHERE n:Person OR n:Organization OR n:Occupation OR n:Title
@@ -464,7 +437,7 @@ def create_kg(driver: GraphDatabase):
         session.run(QUERY_SIM_OCC)
 
 
-def run_gds(driver: GraphDatabase):
+def run_gds(driver: Driver):
     QUERY_GRAPH_PROJECTION = """
     MATCH (e1:Person)-[r:TALKED_ABOUT|TALKED_WITH|WORKS_WITH]->(e2:Person)
     WHERE e1.name <> "WW" AND e2.name <> "WW" AND e1.name <> "Warren Weaver" AND e2.name <> "Warren Weaver" // WW is Warren Weaver, the author of these diaries
@@ -559,11 +532,6 @@ def run_gds(driver: GraphDatabase):
         session.run(QUERY_LOUVAIN)
         session.run(QUERY_DROP_PROJECTION)
 
-    QUERY_COMMUNITIES_ORG = """MATCH (p1:Person)-[:WORKS_FOR]->(o)-[:SIMILAR_ORGANIZATION*0..1]-()<-[:WORKS_FOR]-(p2:Person)
-    //WHERE size(p1.name) > 3 AND size(p2.name) > 3
-    WHERE NOT p1.name_normalized IN ["WW", "Warren Weaver"] AND NOT p2.name_normalized IN ["WW", "Warren Weaver"]
-    """
-
     QUERY_PROJECTION_INFLUENCERS = """
     MATCH (p:Person)
     WHERE p.wcc is not Null
@@ -601,33 +569,19 @@ if __name__ == "__main__":
     # Initialise Neo4j driver
     driver = GraphDatabase.driver('bolt://localhost:7687', auth=basic_auth('neo4j', 'rac12345'))
 
-    #create_indices()
+    create_indices(driver)
 
-    #ingest_diaries(driver, DATA_PATH)
+    ingest_diaries(driver, DATA_PATH)
 
     QUERY_READ = """
     MATCH (p:Page)
     WHERE NOT p:GPTProcessed
-    //WHERE id(p) IN [4, 25, 36, 39, 41, 42, 66, 68, 82, 90]
     RETURN id(p) AS id, p.text AS text 
     ORDER BY p.page_idx 
     LIMIT $limit
     """
-    # Page IDs which were reprocessed by v4 prompt: 4, 25, 34, 35, 36, 39, 41, 42, 56, 57, 59, 64, 66, 68, 71, 72, 73, 82, 87, 90, 92
-    gpt_prompt = read_prompt()
-    #process_diaries_gpt(driver, QUERY_READ, gpt_prompt, n_docs=100)
-
-    # run GPT stability test
-    QUERY_READ_STABILITY = """
-    MATCH (p:GPTProcessed)
-    WITH p
-    ORDER BY p.page_idx 
-    LIMIT $limit
-    SET p.runs = CASE WHEN p.runs is Null THEN ["run 1"] ELSE p.runs END
-    RETURN id(p) AS id, p.text AS text
-    """
-    ##process_diaries_gpt(driver, QUERY_READ_STABILITY, n_docs=20, run="run 2")
-    ##cleanse_stability_test(driver, keep_run="run 1")
+    prompt_segments = read_prompt()
+    process_diaries_gpt(driver, QUERY_READ, prompt_segments, n_docs=100)
 
     # normalise entities
     normalize_entities(driver)

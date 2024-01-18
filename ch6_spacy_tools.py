@@ -1,5 +1,5 @@
 
-# Spacy:
+# Spacy NER classes:
 #  NORP entity = Nationalities or religious or political groups
 #  FAC entity = Buildings, airports, highways, bridges etc.
 #  GPE entity = Countries, cities, states
@@ -30,26 +30,8 @@ def basic_ner(text):
     #displacy.serve(doc, style="ent")  # , page=True, options={"ents": ["PERSON", "ORG"]})
 
 
-def regex_ner_token_matcher(text):
-    import spacy
-    from spacy.matcher import Matcher
-
-    nlp = spacy.load("en_core_web_sm")
-
-    matcher = Matcher(nlp.vocab)
-    patterns = [[{"LEMMA": "writer"}], [{"LEMMA": "singer"}]]
-    matcher.add("TITLE", patterns)
-
-    doc = nlp(text)
-    print("\n".join([f"{en.text}\t{en.label_}\t-\t{spacy.explain(en.label_)}" for en in doc.ents]))
-
-    matches = matcher(doc)
-    for match_id, start, end in matches:
-        string_id = nlp.vocab.strings[match_id]  # Get string representation
-        span = doc[start:end]  # The matched span
-        print(match_id, string_id, start, end, span.text)
-
 def regex_ner(text):
+    # Solution of the exercise in chapter 6.1.2
     import spacy
     from spacy import displacy
 
@@ -59,7 +41,7 @@ def regex_ner(text):
     # add entity ruler to the pipeline
     ruler = nlp.add_pipe("entity_ruler")
 
-    # define NER dictionary patterns
+    # define NER dictionary patterns for C-level business titles
     patterns = [{"pattern": [{"LEMMA": "writer"}], "label": "TITLE"}]
     patterns.append({"pattern": [{"LOWER": "chief"}, {"POS": "PROPN"}, {"POS": "PROPN", "OP": "?"}, {"LOWER": "officer"}], "label": "TITLE"}) #exercise
     patterns.append({"pattern": [{"LOWER": "chief"}, {"POS": "NOUN"}, {"POS": "NOUN", "OP": "?"}, {"LOWER": "officer"}], "label": "TITLE"}) #exercise
@@ -69,23 +51,20 @@ def regex_ner(text):
     doc = nlp(text)
 
     print("\n".join([f"{en.text}\t{en.label_}\t-\t{spacy.explain(en.label_)}" for en in doc.ents]))
-    #displacy.serve(doc, style="dep") #, port=1111)
+    #displacy.serve(doc, style="dep") #, port=1111) # for visual representation of the dependency parser output
 
 
 def ingest_news():
     # CREATE DATABASE news
-    # CREATE CONSTRAINT doc ON (n:Document) ASSERT n.id IS UNIQUE
-    # CREATE CONSTRAINT person ON (n:Person) ASSERT n.name IS UNIQUE
-    # CREATE CONSTRAINT keyword ON (n:Keyword) ASSERT n.name IS UNIQUE
     # pip install pytextrank
     import os
     import spacy
     from neo4j import GraphDatabase, basic_auth
 
-    PATH_DATA = "data/bbc-2"
+    NEO4J_DB = "news"
+    PATH_DATA = "data/bbc"
 
-    QUERY_IMPORT = """USE news
-    MERGE (t:Topic {name: $topic})
+    QUERY_IMPORT = """MERGE (t:Topic {name: $topic})
     WITH t
     
     UNWIND $inputs AS doc
@@ -96,8 +75,7 @@ def ingest_news():
     MERGE (t)-[:HAS_DOCUMENT]->(n)
     """
 
-    QUERY_ENTITIES = """USE news
-    UNWIND $inputs AS doc
+    QUERY_ENTITIES = """UNWIND $inputs AS doc
     
     MATCH (n:Document {id: doc.id})
     
@@ -142,6 +120,12 @@ def ingest_news():
     )
     """
 
+    def create_indices(driver):
+        with driver.session(database=NEO4J_DB) as session:
+            session.run("CREATE CONSTRAINT doc ON (n:Document) ASSERT n.id IS UNIQUE")
+            session.run("CREATE CONSTRAINT person ON (n:Person) ASSERT n.name IS UNIQUE")
+            session.run("CREATE CONSTRAINT keyword ON (n:Keyword) ASSERT n.name IS UNIQUE")
+
     def cleanse_entity(en: str):
         TO_IGNORE = ["the", "a"]
         tokenized = en.split()
@@ -165,12 +149,6 @@ def ingest_news():
                         print(f"UnicodeDecodeError for {id}")
         return data
 
-    ########################### TO DO ! Replace ingest_documents() with this one ... ###########################
-    def ingest_documents_v2():
-        from sklearn.datasets import fetch_20newsgroups
-
-        docs = fetch_20newsgroups(subset='all', remove=('headers', 'footers', 'quotes'))['data']
-
     def enrich_by_nlp(documents: list):
         # load standard English NLP and NER models
         nlp = spacy.load("en_core_web_sm")
@@ -185,7 +163,11 @@ def ingest_news():
     # Initialise Neo4j driver
     driver = GraphDatabase.driver('bolt://localhost:7687', auth=basic_auth('neo4j', 'neo'))
 
-    with driver.session() as session:
+    # Create Neo4j indices
+    create_indices(driver)
+
+    # Ingest docments and run NLP processing
+    with driver.session(database=NEO4J_DB) as session:
         inputs = ingest_documents(PATH_DATA)
         for topic in inputs.keys():
             print(f"Enriching {topic} documents")
@@ -202,18 +184,14 @@ def extract_keywords():
     import math
     from neo4j import GraphDatabase, basic_auth
 
+    NEO4J_DB = "news"
     NUM_BATCHES = 200
 
-    QUERY_INGEST = """
-      USE news
-      MATCH (n:Document)
+    QUERY_INGEST = """MATCH (n:Document)
       RETURN id(n) AS id, n.title AS title, n.text AS text
     """
 
-    QUERY_STORE_KEYWORDS = """
-      USE news
-    
-      UNWIND $inputs AS doc
+    QUERY_STORE_KEYWORDS = """UNWIND $inputs AS doc
     
       MATCH (n:Document)
       WHERE id(n) = doc.id
@@ -242,7 +220,7 @@ def extract_keywords():
     nlp.add_pipe("textrank")
 
     # get data for keyword extraction
-    with driver.session() as session:
+    with driver.session(database=NEO4J_DB) as session:
         documents = session.run(QUERY_INGEST).data()
     print(f"Retrieved {len(documents)} documents")
 
@@ -257,22 +235,24 @@ def extract_keywords():
                                    len(x.text) > 1][:30]
 
         # store back to Neo4j
-        with driver.session() as session:
+        with driver.session(database=NEO4J_DB) as session:
             print("Storing a batch of keywords to Neo4j")
             session.run(QUERY_STORE_KEYWORDS, inputs=batch)
 
 
-
-
 if __name__ == "__main__":
-    text = "Jane Austen, the Victorian era writer, works nowadays for Google."
 
+    ### Listings in chapter 6.1
+    #text = "Jane Austen, the Victorian era writer, works nowadays for Google."
     #visualise_dependency(text)
-    basic_ner(text)
+    #basic_ner(text)
 
+    ### Solution of the exercise in chapter 6.1.2
     #text = "Jane Austen, the Victorian era writer and Chief data officer and CEO, works nowadays for Google."
     #regex_ner(text)
 
-    #ingest_news()
+    ### Create KG from BBC news articles dataset
+    ingest_news()
 
-    #extract_keywords()
+    # for each article, extract keywords and key-phrases (enrichment of the KG created in previous step)
+    extract_keywords()

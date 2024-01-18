@@ -1,14 +1,15 @@
 import json
 import os
 import time
-import openai
+from openai import OpenAI, AzureOpenAI
 
-openai.api_key = "d28eb2ef49754a3796f970de6fb8809a"
+azure_api_key = "d28eb2ef49754a3796f970de6fb8809a"
+openai_api_key = "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"
 
 ### for Azure
-openai.api_type = "azure"
-openai.api_base = "https://ga-sandbox.openai.azure.com"
-openai.api_version = "2023-05-15"
+api_type = "azure"
+api_base = "https://ga-sandbox.openai.azure.com"
+api_version = "2023-05-15"
 
 prompt_v1 = """
 Given a prompt, identify as many entities and relations among them as possible and output a list of relations in the format [ENTITY 1, ENTITY 1 TYPE, RELATION, 
@@ -204,6 +205,40 @@ During the latter part of the lunch, Professor J.W. Allen, lead nuclear physicis
 "works with":[{"source":4,"target":5}]}}
 """
 
+prompt_v8 = """You are an expert on constructing Knowledge Graphs from texts using named entity recognition and relation extraction. Given an input text which represents a page from a diary, identify all named entities and relations among them and output them in the JSON format, where each entity has unique integer ID, property `name` and possibly additional relevant properties. Relations refer to the entities using their IDs and can also have properties. The relations are directed.
+Top entities of interest: person, location, organization, date, occupation (a.k.a. person's work, specialization, research discipline, technology, interests etc.).
+Top relations of interest: "works for", "works with", "student of", "talked about", "talked with", "works on" (i.e. assignment of persons to their occupations).
+For "talked about" relations, classify sentiment (positive, neutral or negative).
+
+Note that persons are often first referenced by their full name, and then mentioned only by their surname or initials, for example: "A. N. Richards" becomes "Richards", "ANR", or just "R.".
+Note that organizations (universities, their departments) are often shortened, for example: "University of California" becomes "U. Cal.".
+Always output only entities with complete/full names.
+
+Don't output any notes nor explanations.
+"""
+
+prompt_v8_example_in = """FBH
+Friday, Feb 19, 2023
+WW visits Dept. of Phys. at U. of PA, with Dean Jose Jewell, PhD.
+Dr. Peter Stafford (Prof.Phys.) shows his research on magnets he's conducting since August last year.
+WW has lunch with Prof. William Meade (Johns Hopkins). William discusses with him the proposed study of organic and anorganic reactions measured by calorimeter. He works on it with his former student, Dr. Andrews. M. described Andrews as a very capable man, but he's not very impressed wih PS.
+During the latter part of the lunch, Professor J.W. Allen, lead nuclear physicist, comes in. A. works with radioisotopes produced by a high energy accelerator and mentions also PS and his research.
+(Copy EB)
+"""
+prompt_v8_example_out = """{"entities":{"diary entry date":[{"id":0,"name":"Friday, February 19, 2023"}],
+"person":[{"id":1,"name":"WW","titles":[]},{"id":2,"name":"Jose Jewell","titles":["Dean", "PhD."]},{"id":3,"name":"Peter Stafford","titles":["Dr.","Professor of Physics"]},{"id":4,"name":"William Meade","titles":["Professor"]},{"id":5,"name":"Andrews","titles":["Doctor"]},{"id":6,"name":"J. W. Allen","titles":["Professor","lead nuclear physicist"]}],
+"organization":[{"id":7,"name":"Department of Physics, University of Pennsylvania"},{"id":8,"name":"Johns Hopkins University"}],
+"date":[{"id":9,"name":"August 2022"}],
+"occupation":[{"id":10,"name":"magnets","label":"occupation","type":"technology"},{"id":11,"name":"organic and anorganic reactions","label":"occupation","type":"chemistry discipline"},{"id":12,"name":"calorimeter","label":"occupation","type":"technology"},{"id":13,"name":"radioisotopes","type":"physics discipline"},{"id":14,"name":"high energy accelerator","type":"technology"}]},
+"relations":{"visits": [{"source":1,"target":7}],
+"talked with":[{"source":1,"target":2},{"source":1,"target":3},{"source":2,"target":3},{"source":1,"target":4,"type":"lunch"},{"source":1,"target":6,"type":"lunch"},{"source":4,"target":6,"type":"lunch"}],
+"works for":[{"source":2,"target":7},{"source":3,"target":7},{"source":4,"target":8},{"source":5,"target":8},{"source":6,"target":8}],
+"works on":[{"source":3,"target":10,"since":"August 2022"},{"source":4,"target":11},{"source":4,"target":12},{"source":5,"target":11},{"source":5,"target":12},{"source":6,"target":13},{"source":6,"target":14}],
+"talked about":[{"source":4,"target":5,"sentiment":"positive"},{"source":4,"target":3,"sentiment":"negative"},{"source":6,"target":3,"sentiment":"neutral"}],
+"student of":[{"source":5,"target":4}],
+"works with":[{"source":4,"target":5}]}}
+"""
+
 prompt_le = """Given a prompt from law enforcement domain, identify all entities and relations among them and output a list of relations in the format [ENTITY 1, ENTITY 1 TYPE, RELATION, ENTITY 2, ENTITY 2 TYPE].
 
 Example:
@@ -232,28 +267,33 @@ def parse_json_output_v2(output: str):
             print(f" {entities[r['source']]['name']} -- {rel_type.upper()} --> {entities[r['target']]['name']}")
 
 
-def openai_query(model, query):
-    t_start = time.time()
-    response = openai.Completion.create(engine=model, prompt=query, temperature=0.3, max_tokens=1000, top_p=1.0,
-                                        frequency_penalty=0.0, presence_penalty=0.0 #, best_of=3
-                                        )
-    print(response['choices'][0]['text'])
-    print(f"\nTime: {round(time.time() - t_start, 1)} sec")
-
-
-def openai_query_azure(model, query, temperature=0.3):
+def openai_query(client, model, query, temperature=0.3):
+    messages = [{"role": "system", "content": prompt_v8},
+                {"role": "user", "content": prompt_v8_example_in},
+                {"role": "assistant", "content": prompt_v8_example_out},
+                {"role": "user", "content": query}
+                ]
     print(f"Temperature {temperature}")
     t_start = time.time()
-    response = openai.Completion.create(deployment_id=model, prompt=query, temperature=temperature, max_tokens=2000)#, top_p=1.0,
-                                        #frequency_penalty=0.0, presence_penalty=0.0 #, best_of=3
-                                        #)
-    print(response['choices'][0]['text'])
+    response = client.chat.completions.create(model=model, messages=messages, temperature=temperature, max_tokens=2000)
+    print(response.choices[0].message.content)
     print(f"\nTime: {round(time.time() - t_start, 1)} sec\n")
 
-    parse_json_output_v2(response['choices'][0]['text'])
+    parse_json_output_v2(response.choices[0].message.content)
 
 
 if __name__ == "__main__":
+    #client = AzureOpenAI(
+    #    api_version=api_version,
+    #    azure_endpoint=api_base,
+    #    api_key=azure_api_key
+    #    # api_key=os.environ['OPENAI_API_KEY']
+    #)
+
+    client = OpenAI(
+        api_key=openai_api_key
+        # api_key=os.environ['OPENAI_API_KEY']
+    )
 
     text = """
     JOHNS HOPKINS UNIVERSITY Chemistry Department:
@@ -278,10 +318,8 @@ PH
     text3 = """Friday, January 13, 1939. General discussion of Cornell biology situation. The results of this conversation are reflected in ww's letter of January 16th to EED. Monday, January 16, 1939. Dr. H. S. Gasser (Telephone). The Rhoads situation has not yet been decided definitely, but it is clear that G. really expects R. to remain at the R.I. G. is anxious not to cause us difficulty, and asks the latest date at which information could be given us. WW says that we could withdraw the item at the meeting if necessary; and that in fact it would not be too serious if the grant were voted and then cancelled, since the cancellation would surely occur within the same year. EB Tuesday, January 17, 1939. Dr. Vincent du Vigneaud, Cornell University Medical College, (Telephone). du V. inquires whether he is free to divide up the sum allocated to salaries in the way which will most effectively serve his purposes. There are a few hundred dollars left unallocated in this sum, which he would like to use for part-time services of a synthetic organic chemist whom he can borrow from Columbia. WW assures him he is at liberty to divide this sum as he pleases. Should he wish to make changes in the amounts allocated for salaries, for materials and supplies, etc., that could also probably be arranged, but we should be consulted. GJB EB Professor L. A. Maynard, Cornell University, and FBH (Luncheon). See FBH's diary."""
 
     #openai.Model.list()
-    model = "text-davinci-003"
-    query = prompt_v5.format(text)
-    query = prompt_v7 + "\n\n###prompt: {0}\n###output:\n".format(text3)
+    #model = "gpt-35-turbo" # for Azure deployment
+    model = "gpt-3.5-turbo"
+    #model = "gpt-4"
     #query = prompt_le.format("Vlasta is the most corrupt criminal who was just seen shooting a person on a street!")
-    #openai_query(model, query)
-    openai_query_azure(model, query, 0.)
-    #openai_query_azure(model, query, 0.1)
+    openai_query(client, model, text, 0.)
