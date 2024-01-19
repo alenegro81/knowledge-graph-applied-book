@@ -30,30 +30,6 @@ def basic_ner(text):
     #displacy.serve(doc, style="ent")  # , page=True, options={"ents": ["PERSON", "ORG"]})
 
 
-def regex_ner(text):
-    # Solution of the exercise in chapter 6.1.2
-    import spacy
-    from spacy import displacy
-
-    # load standard English NLP and NER models
-    nlp = spacy.load("en_core_web_sm")
-
-    # add entity ruler to the pipeline
-    ruler = nlp.add_pipe("entity_ruler")
-
-    # define NER dictionary patterns for C-level business titles
-    patterns = [{"pattern": [{"LEMMA": "writer"}], "label": "TITLE"}]
-    patterns.append({"pattern": [{"LOWER": "chief"}, {"POS": "PROPN"}, {"POS": "PROPN", "OP": "?"}, {"LOWER": "officer"}], "label": "TITLE"}) #exercise
-    patterns.append({"pattern": [{"LOWER": "chief"}, {"POS": "NOUN"}, {"POS": "NOUN", "OP": "?"}, {"LOWER": "officer"}], "label": "TITLE"}) #exercise
-    patterns.append({"pattern": [{"TEXT": {"REGEX": "C[A-Z]O"}}], "label": "TITLE"}) #exercise
-    ruler.add_patterns(patterns)
-
-    doc = nlp(text)
-
-    print("\n".join([f"{en.text}\t{en.label_}\t-\t{spacy.explain(en.label_)}" for en in doc.ents]))
-    #displacy.serve(doc, style="dep") #, port=1111) # for visual representation of the dependency parser output
-
-
 def ingest_news():
     # CREATE DATABASE news
     # pip install pytextrank
@@ -246,10 +222,6 @@ if __name__ == "__main__":
     #text = "Jane Austen, the Victorian era writer, works nowadays for Google."
     #visualise_dependency(text)
     #basic_ner(text)
-
-    ### Solution of the exercise in chapter 6.1.2
-    #text = "Jane Austen, the Victorian era writer and Chief data officer and CEO, works nowadays for Google."
-    #regex_ner(text)
 
     ### Create KG from BBC news articles dataset
     ingest_news()

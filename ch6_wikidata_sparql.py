@@ -1,5 +1,25 @@
+import json
+import requests
 
 NEO4J_DB = "news"
+
+
+def query_wikidata_entity(query: str, entity: str):
+    try:
+        URL = f"https://query.wikidata.org/bigdata/namespace/wdq/sparql?query={query % entity}"
+        response = requests.get(URL, params={'format': "json"})
+        if response.status_code == 429:
+            print("Too many requests")
+        parsed = json.loads(response.content)
+    except json.decoder.JSONDecodeError as e:
+        print(f"JSONDecodeError: Couldn't process entity {entity}: {e}")
+        return dict()
+    except Exception as e:
+        print(f"Couldn't process entity {entity}: {e}")
+        return dict()
+    results = parsed['results']['bindings']
+    return results
+
 
 def enrich_wikidata():
     import time
@@ -64,24 +84,9 @@ def enrich_wikidata():
          }
         }
         GROUP BY ?org ?orgLabel ?desc
-        """ % entity
+        """
 
-        URL = f"https://query.wikidata.org/bigdata/namespace/wdq/sparql?query={SPARQL}"
-
-        try:
-            response = requests.get(URL, params={'format': "json"})
-            if response.status_code == 429:
-                print("Too many requests")
-            parsed = json.loads(response.content)
-            time.sleep(1) # to avoid exception about too many requests
-        except json.decoder.JSONDecodeError as e:
-            print(f"JSONDecodeError: Couldn't process entity {entity}: {e}")
-            return dict()
-        except Exception as e:
-            print(f"Couldn't process entity {entity}: {e}")
-            return dict()
-
-        results = parsed['results']['bindings']
+        results = query_wikidata_entity(SPARQL, entity)
 
         final_res = {'name': results[0]['orgLabel']['value'],
                      'wikidata_url': results[0]['org']['value'],
@@ -107,6 +112,7 @@ def enrich_wikidata():
         for en in entities:
             print(en['name'])
             wiki = get_wikidata(en['name'])
+            time.sleep(1)  # to avoid exception about too many requests
             if len(wiki) == 0:
                 # print("  Nothing found.")
                 continue
@@ -116,8 +122,6 @@ def enrich_wikidata():
 
 
 def enrich_owned_by():
-    import json
-    import requests
     import time
     import math
     import spacy
@@ -145,13 +149,6 @@ def enrich_owned_by():
     )
     """
 
-    def query_wikidata(query: str):
-        URL = f"https://query.wikidata.org/bigdata/namespace/wdq/sparql?query={query}"
-        response = requests.get(URL, params={'format': "json"})
-        parsed = json.loads(response.content)
-        results = parsed['results']['bindings']
-        return results
-
     def get_owners(entities: list):
         """
         Retrieve wikidata IDs of owners for each entity
@@ -165,9 +162,9 @@ def enrich_owned_by():
                 ?org wdt:P127 ?owned_by .
             SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
         }
-        """ % ents
+        """
 
-        results = query_wikidata(SPARQL)
+        results = query_wikidata_entity(SPARQL, ents)
         final_res = dict()
         for r in results:
             org_id = r['org']['value'].split("/")[-1].strip()
@@ -189,9 +186,9 @@ def enrich_owned_by():
             OPTIONAL {?ent wdt:P31 ?instance_of . }
             SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
         }
-        """ % ents
+        """
 
-        results = query_wikidata(SPARQL)
+        results = query_wikidata_entity(SPARQL, ents)
 
         dict_owners = dict()
         for r in results:
