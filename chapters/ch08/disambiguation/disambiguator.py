@@ -61,7 +61,7 @@ class Disambiguator(BaseImporter):
         
         FOREACH(medical in entity |
         MERGE (dis:MedicalEntity {id: medical.selected_ned_id})
-        ON CREATE SET dis.name= apoc.text.join(apoc.text.split(trim(medical.selected_ned.name), "\\s+"), " "),
+        ON CREATE SET dis.name= apoc.text.join(apoc.text.split(trim(medical.selected_ned_name), "\\s+"), " "),
                       dis.type_id = medical.selected_ned_types_id, 
                       dis.types = medical.selected_ned_types,
                       dis.type = medical.selected_ned_types[0],
