@@ -117,7 +117,7 @@ if __name__ == '__main__':
         print(base_path, "isn't a directory")
         sys.exit(1)
 
-    metathesaurus_file = base_path / "MRSTY.RRF"
+    metathesaurus_file = base_path / "SemGroups.txt"
 
     if not metathesaurus_file.is_file():
         print(metathesaurus_file, "doesn't exist in ", base_path)
