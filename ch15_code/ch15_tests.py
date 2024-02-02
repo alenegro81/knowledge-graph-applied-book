@@ -1,7 +1,10 @@
 import os
 import time
 import json
+from pprint import pprint
+
 from openai import AzureOpenAI
+from langchain import hub
 
 from neo4j import GraphDatabase, basic_auth
 
@@ -42,8 +45,10 @@ if __name__ == "__main__":
     question = "Who are the top influencers of cyclotron funding in 1930s?"
     #question = "What did August Krogh say about Lawrence Irving?"
     #question = "How was Dorothy M. Wrinch perceived among her colleagues?"
+
     model = "gpt-35-turbo"
     #model = "gpt-4"
-    result = openai_query_azure(client, model, question)
+    #result = openai_query_azure(client, model, question)
+    #print(result)
 
-    print(result)
+    #pprint(hub.pull("hwchase17/react").template)
