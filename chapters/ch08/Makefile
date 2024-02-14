@@ -28,3 +28,4 @@ import:
 disambiguate:
 	PYTHONPATH=../../ $(PYTHON) disambiguation/disambiguator.py
 	PYTHONPATH=../../ $(PYTHON) disambiguation/ontology_linking.py
+	PYTHONPATH=../../ $(PYTHON) disambiguation/co_occurrence_generator.py
