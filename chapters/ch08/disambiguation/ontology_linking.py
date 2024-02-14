@@ -64,7 +64,7 @@ class OntologyLinking(BaseImporter):
             WHERE item.dis is not null
             MATCH (me:MedicalEntity {id: item.me})
             MATCH (dis:Disease {id: item.dis})
-            MERGE (me)-[:IS_SNOMED_ENTITY]->(dis)
+            MERGE (me)-[:IS_DISEASE_ENTITY]->(dis)
         """
         size = self.get_medical_entities()
         self.batch_store(link_entities, self.get_medical_links(), size=size)
