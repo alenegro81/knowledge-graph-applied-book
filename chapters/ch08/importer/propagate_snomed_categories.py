@@ -1,6 +1,4 @@
-import csv
 import sys
-from pathlib import Path
 
 from util.base_importer import BaseImporter
 

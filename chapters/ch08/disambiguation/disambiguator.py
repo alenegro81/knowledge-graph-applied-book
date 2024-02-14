@@ -32,7 +32,7 @@ class Disambiguator(BaseImporter):
             for page in iter(result):
                 yield {
                     "id": page["id"],
-                    'ents': self.entity_extractor.extract_ents(page['text'])
+                    "ents": self.entity_extractor.extract_ents(page["text"])
                 }
 
     def ingest_entities(self):

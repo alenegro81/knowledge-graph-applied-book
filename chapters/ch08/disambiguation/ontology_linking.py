@@ -1,10 +1,4 @@
-import csv
 import sys
-from pathlib import Path
-
-import neo4j.exceptions
-
-from chapters.ch08.disambiguation.entity_extractor import EntityExtractor
 from util.base_importer import BaseImporter
 
 

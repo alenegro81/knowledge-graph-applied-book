@@ -47,13 +47,3 @@ class CoOccurrenceGenerator(BaseImporter):
 if __name__ == '__main__':
     linking = CoOccurrenceGenerator(argv=sys.argv[1:], )
     linking.link_cooccurring_entities()
-
-    """
-    print("linking entities to Snomed")
-    linking.link_entities_to_snomed()
-    print("linking entities to HPO")
-    linking.link_entities_to_hpo()
-    print("linking entities to Diseases")
-    linking.link_entities_to_disease()
-    linking.close()
-    """
