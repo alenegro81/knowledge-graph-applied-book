@@ -22,6 +22,7 @@ import:
 	PYTHONPATH=../../ $(PYTHON) importer/import_snomed_rels.py
 	PYTHONPATH=../../ $(PYTHON) importer/import_snomed_names.py
 	PYTHONPATH=../../ $(PYTHON) importer/propagate_snomed_categories.py
+	PYTHONPATH=../../ $(PYTHON) importer/import_hpo.py
 	PYTHONPATH=../../ $(PYTHON) importer/import_umls_concept_mapping.py
 	PYTHONPATH=../../ $(PYTHON) importer/import_ocred_documents.py
 
