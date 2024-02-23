@@ -1,10 +1,4 @@
-import csv
 import sys
-from pathlib import Path
-
-import neo4j.exceptions
-
-from chapters.ch08.disambiguation.entity_extractor import EntityExtractor
 from util.base_importer import BaseImporter
 
 
@@ -70,7 +64,7 @@ class OntologyLinking(BaseImporter):
             WHERE item.dis is not null
             MATCH (me:MedicalEntity {id: item.me})
             MATCH (dis:Disease {id: item.dis})
-            MERGE (me)-[:IS_SNOMED_ENTITY]->(dis)
+            MERGE (me)-[:IS_DISEASE_ENTITY]->(dis)
         """
         size = self.get_medical_entities()
         self.batch_store(link_entities, self.get_medical_links(), size=size)

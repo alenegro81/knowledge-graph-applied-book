@@ -1,9 +1,6 @@
-import csv
 import json
 import sys
 from pathlib import Path
-
-#from tqdm import tqdm
 
 from util.base_importer import BaseImporter
 
@@ -17,7 +14,8 @@ class OcredDocumentsImport(BaseImporter):
 
     def set_constraints(self):
         queries = ["CREATE INDEX PageId IF NOT EXISTS FOR (n:Page) ON (n.id)",
-                   "CREATE INDEX FileId IF NOT EXISTS FOR (n:File) ON (n.id)"]
+                   "CREATE INDEX FileId IF NOT EXISTS FOR (n:File) ON (n.id)",
+                   "CREATE FULLTEXT INDEX PageText IF NOT EXISTS FOR (n:Page) ON EACH [n.text]"]
 
         for q in queries:
             with self._driver.session(database=self._database) as session:

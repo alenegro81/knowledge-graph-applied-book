@@ -1,4 +1,3 @@
-import csv
 import sys
 from pathlib import Path
 
@@ -33,7 +32,7 @@ class Disambiguator(BaseImporter):
             for page in iter(result):
                 yield {
                     "id": page["id"],
-                    'ents': self.entity_extractor.extract_ents(page['text'])
+                    "ents": self.entity_extractor.extract_ents(page["text"])
                 }
 
     def ingest_entities(self):
@@ -61,7 +60,7 @@ class Disambiguator(BaseImporter):
         
         FOREACH(medical in entity |
         MERGE (dis:MedicalEntity {id: medical.selected_ned_id})
-        ON CREATE SET dis.name= apoc.text.join(apoc.text.split(trim(medical.selected_ned.name), "\\s+"), " "),
+        ON CREATE SET dis.name= apoc.text.join(apoc.text.split(trim(medical.selected_ned_name), "\\s+"), " "),
                       dis.type_id = medical.selected_ned_types_id, 
                       dis.types = medical.selected_ned_types,
                       dis.type = medical.selected_ned_types[0],
@@ -117,7 +116,7 @@ if __name__ == '__main__':
         print(base_path, "isn't a directory")
         sys.exit(1)
 
-    metathesaurus_file = base_path / "MRSTY.RRF"
+    metathesaurus_file = base_path / "SemGroups.txt"
 
     if not metathesaurus_file.is_file():
         print(metathesaurus_file, "doesn't exist in ", base_path)
