@@ -10,6 +10,7 @@ class BaseImporter(GraphDBBase):
     def __init__(self, command=None, argv=None, extended_options='', extended_long_options=None):
         super().__init__(command, argv, extended_options, extended_long_options)
         self._database = "neo4j"
+        self.batch_size = 1000
 
     def batch_store(self, query: str, parameters_iterator: Iterable, size: int = None, strategy: str = "aggregate",
                     desc=""):
@@ -42,7 +43,7 @@ class BaseImporter(GraphDBBase):
             tx = session.begin_transaction()
             for item_count, parameters in enumerate(parameters_iterator, start=1):
                 tx.run(query, parameters)
-                if item_count % 1000 == 0:
+                if item_count % self.batch_size == 0:
                     tx.commit()
                     tx = session.begin_transaction()
             tx.commit()
@@ -70,8 +71,8 @@ class BaseImporter(GraphDBBase):
         :param size:optional parameters_iterator's length
         :param desc: optional progress bar description
         """
-        parameters_batches = self.get_batches(parameters_iterator, 1000)
-        parameters_batches = tqdm(parameters_batches, total=math.ceil(size / 1000.), desc=desc)
+        parameters_batches = self.get_batches(parameters_iterator, self.batch_size)
+        parameters_batches = tqdm(parameters_batches, total=math.ceil(size / self.batch_size), desc=desc)
         with self._driver.session(database=self._database) as session:
             for batch in parameters_batches:
                 session.run(query, {"batch": batch})
