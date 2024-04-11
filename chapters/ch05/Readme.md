@@ -1,4 +1,4 @@
-## Build knowledfe Graph from structured Sources
+## Build knowlede Graph from structured Sources
 
 ### Getting started
 

@@ -1,7 +1,10 @@
 import sys
 import time
+from pathlib import Path
+
 import math
 import spacy
+from tqdm.auto import tqdm
 
 from util.base_importer import BaseImporter
 from step2__enrich_organizations import query_wikidata_entity
@@ -11,9 +14,10 @@ class OwnershipEnricher(BaseImporter):
     def __init__(self, argv):
         super().__init__(command=__file__, argv=argv)
         self._database = "news"
+        self.cache_folder = None
 
         self.QUERY_GET_INPUTS = """MATCH (e:Organization)
-        WHERE EXISTS(e.wikidata_id)
+        WHERE e.wikidata_id IS NOT NULL
         RETURN id(e) AS id, e.name AS name, e.wikidata_id AS wikidata_id
         """
 
@@ -34,7 +38,30 @@ class OwnershipEnricher(BaseImporter):
         )
         """
 
-    def get_owners(self, entities: list):
+    def get_onwers_with_type(self, entity):
+        SPARQL = """
+        SELECT ?owned_by ?owned_byLabel ?owner_instance_of 
+        WHERE {
+          wd:%s wdt:P127 ?owned_by .
+          ?owned_by wdt:P31 ?owner_instance_of .
+          SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+        }"""
+        results = query_wikidata_entity(SPARQL, entity["wikidata_id"], self.cache_folder)
+        owned_by_org = []
+        owned_by_per = []
+        for r in results:
+            if r["owner_instance_of"] == "https://www.wikidata.org/entity/Q5":  # owner is person
+                owned_by_org.append(r["owned_byLabel"]["value"])
+            else:
+                owned_by_per.append(r["owned_byLabel"]["value"])
+        if len(results) > 0:
+            return {'id': entity["id"],
+                    'owned_by_org': owned_by_org,
+                    'owned_by_per': owned_by_per}
+        pass
+
+    @staticmethod
+    def get_owners(entities: list):
         """
         Retrieve wikidata IDs of owners for each entity
         :param entities: list of entities represented as dictionaries
@@ -60,7 +87,8 @@ class OwnershipEnricher(BaseImporter):
 
         return final_res
 
-    def disambiguate_owners(self, entities: dict):
+    @staticmethod
+    def disambiguate_owners(entities: dict):
         # verify owner entity type (Organization or Person)
         ents = " ".join([f"(wd:{owner})" for x in entities.values() for owner in x])
         SPARQL = """
@@ -96,6 +124,13 @@ class OwnershipEnricher(BaseImporter):
         with self._driver.session(database=self._database) as session:
             entities = session.run(self.QUERY_GET_INPUTS).data()
             print(f"Retrieved {len(entities)} entities")
+            results = []
+            for e in tqdm(entities[:], desc="acquiring owners"):
+                res = self.get_onwers_with_type(entity=e)
+                if res is not None:
+                    results.append(res)
+            session.run(self.QUERY_STORE_RESULTS, inputs=results)
+            return
 
             # run in batches
             NUM_BATCHES = 20
@@ -112,4 +147,9 @@ class OwnershipEnricher(BaseImporter):
 
 if __name__ == "__main__":
     enricher = OwnershipEnricher(argv=sys.argv[1:])
+
+    # set up a cache folder for wikidata responses
+    enricher.cache_folder = Path("../../data/cache_owners")
+    enricher.cache_folder.mkdir(exist_ok=True)
+
     enricher.run()

@@ -6,27 +6,77 @@ from pathlib import Path
 from openai import OpenAI
 
 from util.base_importer import BaseImporter
+from neo4j.exceptions import ClientError as Neo4jClientError
 
-DATA_PATH = "data/ch8_rac_ww_1939.json"
-PROMPT_PATH = "data/"
+
+class DiariesImporter(BaseImporter):
+    def __init__(self, argv):
+        super().__init__(command=__file__, argv=argv)
+        self._database = "rac2"
+        self.create_indices()
+
+    def create_indices(self):
+        with self._driver.session(database=self._database) as session:
+            query = """
+                CREATE CONSTRAINT IF NOT EXISTS FOR (n:File) REQUIRE n.name IS NODE KEY;
+                CREATE CONSTRAINT IF NOT EXISTS FOR (n:Page) REQUIRE n.id IS NODE KEY;
+                CREATE TEXT INDEX node_entity_name IF NOT EXISTS FOR (n:Entity) ON (n.name);
+                CREATE CONSTRAINT IF NOT EXISTS FOR (n:Person) REQUIRE n.name_normalized IS NODE KEY;
+                CREATE CONSTRAINT IF NOT EXISTS FOR (n:Organization) REQUIRE n.name_normalized IS NODE KEY;
+                CREATE CONSTRAINT IF NOT EXISTS FOR (n:Occupation) REQUIRE n.name_normalized IS NODE KEY;
+                CREATE CONSTRAINT IF NOT EXISTS FOR (n:Title) REQUIRE n.name_normalized IS NODE KEY;
+                CREATE TEXT INDEX IF NOT EXISTS FOR (n:Person) ON (n.name_normalized);
+                CREATE TEXT INDEX IF NOT EXISTS FOR (n:Organization) ON (n.name_normalized);
+                CREATE TEXT INDEX IF NOT EXISTS FOR (n:Occupation) ON (n.name_normalized);
+                CREATE TEXT INDEX IF NOT EXISTS FOR (n:Title) ON (n.name_normalized);
+                CREATE TEXT INDEX rel_text_entities IF NOT EXISTS FOR ()-[r:RELATED_TO_ENTITY]-() ON (r.type)"""
+            for q in query.split(";"):
+                try:
+                    session.run(q)
+                except Neo4jClientError as e:
+                    # ignore if we already have the rule in place
+                    if e.code != "Neo.ClientError.Schema.EquivalentSchemaRuleAlreadyExists":
+                        raise e
+
+    @staticmethod
+    def count_diaries(diaries_file):
+        return len(json.load(diaries_file.open()))
+
+    @staticmethod
+    def get_diaries(diaries_file):
+        for diary in json.load(diaries_file.open()):
+            diary["file_name"] = "_".join(diary['id'].split("_")[:-1])
+            yield diary
+
+    def ingest_diaries(self, diaries_file):
+        import_diaries = """
+                UNWIND $batch as item
+                MERGE (f:File {name: item.file_name})
+                MERGE (p:Page {id: item.id})
+                SET p.page_idx = item.page_idx, p.text = item.text
+
+                WITH f, p
+
+                MERGE (f)-[:CONTAINS_PAGE]->(p)
+                """
+        size = self.count_diaries(diaries_file)
+        self.batch_store(import_diaries, self.get_diaries(diaries_file), size=size)
 
 
 class FullKG(BaseImporter):
     def __init__(self, argv):
         super().__init__(command=__file__, argv=argv)
+        self.cache_folder: Path = None
         self._database = "rac2"
         self.openai_model = "gpt-4"
-        self.openai_key = "<fill in your key>"
-
-    def run_ingestion(self, path: Path):
-        self.create_indices()
-        self.ingest_diaries(path)
+        self.openai_key = None
+        self.openai_url = None
 
     def build_kg(self, prompt_path: Path):
         QUERY_READ = """
             MATCH (p:Page)
             WHERE NOT p:GPTProcessed
-            RETURN id(p) AS id, p.text AS text 
+            RETURN id(p) AS id,p.id as key, p.text AS text 
             ORDER BY p.page_idx 
             LIMIT $limit
             """
@@ -42,44 +92,6 @@ class FullKG(BaseImporter):
         # create a final clean KG
         self.create_kg()
 
-    def create_indices(self):
-        with self._driver.session(database=self._database) as session:
-            # metagraph related
-            session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (n:File) REQUIRE n.name IS NODE KEY")
-            session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (n:Page) REQUIRE n.id IS NODE KEY")
-            session.run("CREATE TEXT INDEX node_entity_name IF NOT EXISTS FOR (n:Entity) ON (n.name)")
-
-            # KG related
-            session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (n:Person) REQUIRE n.name_normalized IS NODE KEY")
-            session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (n:Organization) REQUIRE n.name_normalized IS NODE KEY")
-            session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (n:Occupation) REQUIRE n.name_normalized IS NODE KEY")
-            session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (n:Title) REQUIRE n.name_normalized IS NODE KEY")
-            session.run("CREATE TEXT INDEX IF NOT EXISTS FOR (n:Person) ON (n.name_normalized)")
-            session.run("CREATE TEXT INDEX IF NOT EXISTS FOR (n:Organization) ON (n.name_normalized)")
-            session.run("CREATE TEXT INDEX IF NOT EXISTS FOR (n:Occupation) ON (n.name_normalized)")
-            session.run("CREATE TEXT INDEX IF NOT EXISTS FOR (n:Title) ON (n.name_normalized)")
-            session.run("CREATE TEXT INDEX rel_text_entities IF NOT EXISTS FOR ()-[r:RELATED_TO_ENTITY]-() ON (r.type)")
-
-    def ingest_diaries(self, path: Path):
-        QUERY_IMPORT = """MERGE (f:File {name: $file_name})
-        MERGE (p:Page {id: $page_id})
-        SET p.page_idx = $page_idx, p.text = $text
-    
-        WITH f, p
-    
-        MERGE (f)-[:CONTAINS_PAGE]->(p)
-        """
-
-        print(f"Reading {path}")
-        with open(path, 'r') as f:
-            diaries = json.load(f)
-
-        print("Importing to neo4j ...")
-        with self._driver.session(database=self._database) as session:
-            for d in diaries:
-                session.run(QUERY_IMPORT, file_name="_".join(d['id'].split("_")[:-1]), page_id=d['id'],
-                            page_idx=d['page_idx'], text=d['text'])
-
     def read_prompt(self, path: Path):
         prompt_segments = {}
         with open(os.path.join(path, "gpt_prompt_task.txt"), 'r') as f:
@@ -90,7 +102,12 @@ class FullKG(BaseImporter):
             prompt_segments['example_output'] = f.read()
         return prompt_segments
 
-    def openai_query(self, gpt_client, prompt_segments: dict, query: str):
+    def openai_query(self, gpt_client, prompt_segments: dict, query: str, key: str = None):
+        # use the cached response if possible
+        if self.cache_folder is not None and key is not None:
+            if (self.cache_folder / f"{key}.json").is_file():
+                return json.load((self.cache_folder / f"{key}.json").open())
+
         messages = [{"role": "system", "content": prompt_segments['task']},
                     {"role": "user", "content": prompt_segments['example']},
                     {"role": "assistant", "content": prompt_segments['example_output']},
@@ -98,13 +115,21 @@ class FullKG(BaseImporter):
                     ]
 
         t_start = time.time()
-        response = gpt_client.chat.completions.create(model=self.openai_model, messages=messages, temperature=0., max_tokens=2000)
+        response = gpt_client.chat.completions.create(model=self.openai_model, messages=messages, temperature=0.,
+                                                      max_tokens=2000)
         print(response.choices[0].message.content)
         print(f"\nTime: {round(time.time() - t_start, 1)} sec\n")
+        ret = response.choices[0].message.content
 
-        return response.choices[0].message.content
+        # cache the response
+        if self.cache_folder is not None and key is not None:
+            if self.cache_folder.is_dir():
+                json.dump(ret, (self.cache_folder / f"{key}.json").open("w"))
 
-    def parse_gpt_output(self, output: str) -> dict:
+        return ret
+
+    @staticmethod
+    def parse_gpt_output(output: str) -> dict:
         ents, rels = list(), list()
         failed = False
         try:
@@ -192,12 +217,11 @@ class FullKG(BaseImporter):
             session.run(QUERY_TITLES, id=doc_id, entities=entities)
             session.run(QUERY_WRITE_RELS, id=doc_id, relations=relations, run=run)
 
-
     def process_diaries_gpt(self, query_read: str, gpt_prompt_segments: dict, n_docs: int = 100,
                             run: str = "run 1"):
         client = OpenAI(
-            api_key=self.openai_key
-            # api_key=os.environ['OPENAI_API_KEY']
+            base_url=self.openai_url,
+            api_key=self.openai_key,
         )
 
         print("Reading pages")
@@ -210,7 +234,7 @@ class FullKG(BaseImporter):
         failed_pages = list()
         for p in pages:
             print(f"Processing page {p['id']}")
-            output = self.openai_query(client, gpt_prompt_segments, p['text'])
+            output = self.openai_query(client, gpt_prompt_segments, p['text'], key=p['key'])
             gpt_parsed = self.parse_gpt_output(output)
             if gpt_parsed['failed']:
                 failed_pages.append(p)
@@ -227,7 +251,7 @@ class FullKG(BaseImporter):
 
         for p in failed_pages:
             print(f"Processing page {p['id']}")
-            output = self.openai_query(client, gpt_prompt_segments, p['text'])
+            output = self.openai_query(client, gpt_prompt_segments, p['text'], key=p['key'] + "_retry")
             gpt_parsed = self.parse_gpt_output(output)
             # even if some relations have incorrect format again, store at least the good ones this time
             print(
@@ -252,7 +276,9 @@ class FullKG(BaseImporter):
         REMOVE_TITLES = ["dr.", "prof.", "dean", "president", "pres.", "sir", "mr.", "mrs."]
         QUERY_NORM_PERSONS = """
             MATCH (e:Entity {label: "Person"})
-            WITH e, CASE WHEN ANY(title IN $remove_titles WHERE toLower(e.name) STARTS WITH title) THEN apoc.text.join(split(e.name, " ")[1..], " ") ELSE e.name END AS name
+            WITH e, CASE WHEN ANY(title IN $remove_titles WHERE toLower(e.name) STARTS WITH title) 
+                THEN apoc.text.join(split(e.name, " ")[1..], " ") 
+                ELSE e.name END AS name
             SET e.name_normalized = name
             """
 
@@ -459,7 +485,6 @@ class FullKG(BaseImporter):
             print("Creating Occupation similarities")
             session.run(QUERY_SIM_OCC)
 
-
     def run_gds(self):
         QUERY_GRAPH_PROJECTION = """
         MATCH (e1:Person)-[r:TALKED_ABOUT|TALKED_WITH|WORKS_WITH]->(e2:Person)
@@ -588,22 +613,48 @@ class FullKG(BaseImporter):
 
 
 if __name__ == "__main__":
+
+    importing = DiariesImporter(argv=sys.argv[1:])
+    base_path = importing.source_dataset_path
+
+    if not base_path:
+        print("Source path directory is mandatory. Setting it to default.")
+        base_path = "../../data/"
+    base_path = Path(base_path)
+
+    if not base_path.is_dir():
+        print(base_path, "isn't a directory")
+        sys.exit(1)
+
+    diary_file = base_path / "ch8_rac_ww_1939.json"
+
+    if not diary_file.is_file():
+        print(diary_file, "doesn't exist in ", base_path)
+        sys.exit(1)
+
+    importing.ingest_diaries(diary_file)
+
     kg = FullKG(argv=sys.argv[1:])
 
     base_path = kg.source_dataset_path
     if not base_path:
         print("Source path directory is mandatory. Setting it to default.")
-        base_path = "../../data/bbc/"
+        base_path = "../../data/"
     base_path = Path(base_path)
 
     prompt_path = kg.source_dataset_path
-    if not base_path:
+    if not prompt_path:
         print("Prompt path directory is mandatory. Setting it to default.")
         prompt_path = "../../data/"
     prompt_path = Path(prompt_path)
 
-    # create Neo4j indices & ingest documents
-    kg.run_ingestion(base_path)
+    kg.openai_key = os.environ.get("OPENAI_KEY")
+    kg.openai_url = os.environ.get("OPENAI_BASE_URL")
+    kg.openai_model = os.environ.get("OPENAI_MODEL", "gpt-4")
+
+    # set up a cache folder for LLM responses
+    kg.cache_folder = Path("../../data/cache_llm")
+    kg.cache_folder.mkdir(exist_ok=True)
 
     # build a KG layer (normalise & resolve entities)
     kg.build_kg(prompt_path)

@@ -1,8 +1,8 @@
 import sys
 from pathlib import Path
 
-import math
 import spacy
+import pytextrank
 from neo4j.exceptions import ClientError as Neo4jClientError
 
 from util.base_importer import BaseImporter
