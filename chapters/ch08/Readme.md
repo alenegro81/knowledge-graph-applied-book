@@ -1,4 +1,4 @@
-## TODO: CH08 title
+## Building knowledge graphs with Large Language Models
 
 ### Getting started
 

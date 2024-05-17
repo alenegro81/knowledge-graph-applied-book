@@ -1,4 +1,4 @@
-## TODO: CH06 title
+## Knowledge graphs and natural language processing
 
 ### Getting started
 
