@@ -1,4 +1,4 @@
-# Knowledge Graph In Action
+# Knowledge Graph Applied
 
 ### Getting started with this repository
 
