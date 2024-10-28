@@ -1,0 +1,8 @@
+Given the following natural language query: {query}
+
+Generate a valid Cypher query to run against a Neo4j database that contains the following types of entities and relationships:
+
+Entities: Person, Document, Event
+Relationships: TALKED_ABOUT, TALKED_WITH, WORKS_WITH, WORKS_ON, HAS_TITLE
+
+Please generate the Cypher query as output.

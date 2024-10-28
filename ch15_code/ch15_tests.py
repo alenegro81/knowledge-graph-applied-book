@@ -17,28 +17,10 @@ api_base = "https://ga-sandbox.openai.azure.com"
 api_version = "2023-12-01-preview"
 
 
-def openai_query_azure(client, model, query):
-    messages = [{"role": "system", "content": "Answer the questions the best you can."},
-                {"role": "user", "content": query}
-                ]
-    t_start = time.time()
-    response = client.chat.completions.create(model=model, messages=messages, temperature=0, max_tokens=2000)
-                                        #top_p=1.0, frequency_penalty=0.0, presence_penalty=0.0 #, best_of=3
-                                        #)
-    #print(response.choices[0].message.content)
-    print(f"Time: {round(time.time() - t_start, 1)} sec")
-    return response.choices[0].message.content
+
 
 
 if __name__ == "__main__":
-    client = AzureOpenAI(
-        # https://learn.microsoft.com/en-us/azure/ai-services/openai/reference#rest-api-versioning
-        api_version=api_version,
-        azure_endpoint=api_base,
-        api_key=api_key
-        #api_key=os.environ['OPENAI_API_KEY']
-    )
-
     #question = "What did Ernest O. Lawrence and Niels Bohr talk about?"
     #question = "How is Ernest O. Lawrence related to University of California?"
     #question = "How is Harvard related to Johns Hopkins University?"
@@ -51,4 +33,9 @@ if __name__ == "__main__":
     #result = openai_query_azure(client, model, question)
     #print(result)
 
-    #pprint(hub.pull("hwchase17/react").template)
+    #prompt = hub.pull("hwchase17/structured-chat-agent")
+    prompt = hub.pull("hwchase17/react")
+    print(prompt.invoke({'tool_names': "<tool_names>", 'tools': ["<tools>"], 'input': "<input>", 'agent_scratchpad': ["<scratchpad"]}).to_string())
+    for msg in prompt.messages:
+        pprint(msg)
+

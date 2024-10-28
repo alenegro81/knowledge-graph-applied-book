@@ -125,7 +125,7 @@ if __name__ == "__main__":
             (:Person)-[:TALKED_ABOUT]->(:Person)
             (:Person)-[:WORKS_ON]->(:Occupation)
             (:Occupation)-[:SIMILAR_OCCUPATION]->(:Occupation)
-            (:Organization)-[:SIMILAR_ORGANNIZATION]->(:Organization)
+            (:Organization)-[:SIMILAR_ORGANIZATION]->(:Organization)
             
             Always use full question as input, without any changes!""",
         )

@@ -1,4 +1,4 @@
-from typing import Optional, Type, List
+from typing import Optional, Type, List, AnyStr
 
 from langchain.callbacks.manager import (
     AsyncCallbackManagerForToolRun,
@@ -6,9 +6,10 @@ from langchain.callbacks.manager import (
 )
 
 # Import things that are needed generically
-from langchain.pydantic_v1 import BaseModel, Field
-from langchain.tools import BaseTool
+from pydantic import BaseModel, Field
+from langchain.tools import BaseTool, StructuredTool
 from langchain_community.graphs import Neo4jGraph
+from langchain_core.tools import tool
 
 from definitions import KG_SCHEMA
 
@@ -25,11 +26,11 @@ graph = Neo4jGraph(
         database=NEO4J_DB
     )  # requires APOC to be installed, specifically `apoc.meta.data`
 
-RE_SELECTOR_QUERY = """MATCH (p:Page)-[:MENTIONS_ENTITY]->(m1:Entity)-->(e1:{e1_class})-[:{rel_class}]->(e2:{e2_class})<--(m2:Entity)<-[:MENTIONS_ENTITY]-(p)
+RE_SELECTOR_QUERY = """MATCH (p:Page)-[:MENTIONS_ENTITY]->(m1:Entity)-->(e1:{e1_class})-[:{rel_class}]-(e2:{e2_class})<--(m2:Entity)<-[:MENTIONS_ENTITY]-(p)
 WHERE e1.name = "{e1}" AND e2.name = "{e2}"
-MATCH (m1)-[r:RELATED_TO_ENTITY]->(m2)
+MATCH (m1)-[r:RELATED_TO_ENTITY]-(m2)
 WHERE r.type = "{rel_class}"
-RETURN DISTINCT p.id AS id, p.text AS text //, id(p) AS page_db_id
+RETURN DISTINCT p.id AS id, p.text AS text
 """
 
 
@@ -42,13 +43,29 @@ class REDiarySelectorInput(BaseModel):
     entity_target_class: str = Field(description="Class of the target entity of the relationship. "
                                                  "Available options are Person, Organization, Occupation and Title."
                                      )
-    rel_class: str = Field(description="Relationship class between source and target entity. "
+    relationship: str = Field(description="Relationship class between source and target entity. "
                                        "Available options: TALKED_ABOUT, TALKED_WITH, WORKS_WITH, WORKS_ON, HAS_TITLE")
 
 
+#@tool("KG-based-document-selector", args_schema=REDiarySelectorInput, return_direct=False)
+def kg_doc_selector(entity_source: str, entity_source_class: str, entity_target: str, entity_target_class: str,
+                    relationship: str) -> List[AnyStr]:
+    query = RE_SELECTOR_QUERY.format(e1=entity_source, e1_class=entity_source_class,
+                             e2=entity_target, e2_class=entity_target_class,
+                             rel_class=relationship)
+    print(f"kg_doc_selector's query:\n{query}\n")
+    try:
+        res = graph.query(query)
+        print(f"kg_doc_selector found {len(res)} matching documents")
+    except Exception as e:
+        print(f"Cypher execution exception: {e}")
+        return []
+    return [x['text'] for x in res[:3]]
+
+
 class REDiarySelectorTool(BaseTool):
-    name = "EntityRelationDiarySelector"
-    description = (
+    name: str = "EntityRelationDiarySelector"
+    description: str = (
         "Useful when you need to find highly targeted question-relevant documents (diary entries) when the question is about two entities and a relationship between them "
         "that is present in the Knowledge Graph (KG), but the KG itself does not contain enough details to provide the answer. "
         "In such case, use this tool to find such documents (diary entries) that mention the specific relation class "
