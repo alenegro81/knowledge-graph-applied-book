@@ -1,7 +1,10 @@
 import os
 from typing import List, AnyStr
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from langchain_community.graphs import Neo4jGraph
+
+load_dotenv(dotenv_path="../.env")
 
 graph = Neo4jGraph(
         url=os.environ['NEO4J_URL'],
@@ -43,3 +46,6 @@ def kg_doc_selector(entity_source: str, entity_source_class: str, entity_target:
         print(f"Cypher execution exception: {e}")
         return []
     return [x['text'] for x in res[:3]]
+
+if __name__ == "__main__":
+    print(kg_doc_selector("August Krogh", "Person", "Lawrence Irving", "Person", "TALKED_ABOUT"))
