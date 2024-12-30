@@ -3,8 +3,8 @@ import time
 from dotenv import load_dotenv
 from openai import OpenAI
 
-#from listing_2 import prompt_segments
-from listing_5 import prompt_segments
+from listing_2 import prompt_segments
+#from listing_5 import prompt_segments
 #from listing_7 import prompt_segments
 
 _ = load_dotenv()
@@ -37,5 +37,3 @@ be demonstrated the theory of the Raman spectra. J.B.Mayer (Assoc. in Chem.) is 
 
     openai_query(client, prompt_segments, text)
     print("-----------\n\n")
-    time.sleep(2)
-    openai_query(client, prompt_segments, text)
