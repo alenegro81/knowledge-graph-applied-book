@@ -1,17 +1,23 @@
+import os
 import time
+from dotenv import load_dotenv
 from openai import OpenAI
-from listing_2 import prompt_segments
 
-OPENAI_MODEL = "gpt-3.5-turbo"
-#OPENAI_MODEL = "gpt-4"
-OPENAI_API_KEY = "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"
+from listing_2 import prompt_segments
+#from listing_5 import prompt_segments
+#from listing_7 import prompt_segments
+
+_ = load_dotenv()
+
+OPENAI_MODEL = "gpt-4o-mini"
 
 def openai_query(client, prompt_segments: dict, query: str):
-    messages = [{"role": "system", "content": prompt_segments['task']},
-                {"role": "user", "content": prompt_segments['example']},
-                {"role": "assistant", "content": prompt_segments['example_output']},
-                {"role": "user", "content": query}
-                ]
+    messages = [
+        {"role": "system", "content": prompt_segments['task']},
+        {"role": "user", "content": prompt_segments['example']},
+        {"role": "assistant", "content": prompt_segments['example_output']},
+        {"role": "user", "content": query}
+    ]
     t_start = time.time()
     response = client.chat.completions.create(model=OPENAI_MODEL, messages=messages, temperature=0., max_tokens=2000)
     print(response.choices[0].message.content)
@@ -21,10 +27,7 @@ def openai_query(client, prompt_segments: dict, query: str):
 
 
 if __name__ == "__main__":
-    client = OpenAI(
-        api_key=OPENAI_API_KEY
-        # api_key=os.environ['OPENAI_API_KEY']
-    )
+    client = OpenAI(api_key=os.environ['OPENAI_API_KEY'])
 
     text = """JOHNS HOPKINS UNIVERSITY Chemistry Department:
 Wednesday, November 9, 1932
@@ -33,3 +36,4 @@ Plan. D.H. Andrews (Prof.Chem.) is a physical chemist specializing in thermodyna
 be demonstrated the theory of the Raman spectra. J.B.Mayer (Assoc. in Chem.) is a former student of G. N. Lewis and works with Max Born at Gottingen summers. He specializes in the energetics of crystal lattices. His wife, last summer, prepared the new edition of Born's treatise on this subject. In Mayer's laboratory Mrs. Wintner, wife of the mathematician, is working on an experimental problem. Andrews says that Mayer is young and impresses one as an enthusiastic and able man."""
 
     openai_query(client, prompt_segments, text)
+    print("-----------\n\n")
