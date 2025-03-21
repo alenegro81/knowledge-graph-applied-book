@@ -7,8 +7,7 @@ schema:
                       "extractionId", "dumpSource",
                       "charges_class", "charges_description", "charges_statute",
                       "charges_type", "charges_FBI_code",
-                      "x_coordinate", "y_coordinate",
-                      "__hume__createdViaHume"]
+                      "x_coordinate", "y_coordinate"]
     descriptions:
         classes:
             Arrest: Contains up to 4 charges described with the properties charge_[1|2|3|4]_xyz

@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import logging
 
@@ -8,9 +9,10 @@ import yaml
 from tools.schema import Neo4jSchema
 import chains.investigator as chain
 
-URI = "neo4j://localhost:7687"
-AUTH = ("neo4j", 'password')
-DATABASE = "chicago.ila"
+URI = os.getenv('NEO4J_URI', "neo4j://localhost:7687")
+AUTH = (os.getenv('NEO4J_USER', "neo4j"), os.getenv('NEO4J_PASSWORD', 'password'))
+DATABASE = os.getenv('NEO4J_DATABASE', "neo4j")
+
 logger = logging.getLogger("APP")
 logging.basicConfig(level=logging.INFO)
 

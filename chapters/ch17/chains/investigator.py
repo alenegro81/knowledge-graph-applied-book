@@ -21,11 +21,11 @@ logger = logging.getLogger("CHAIN")
 
 # OLLAMA:
 # from langchain_ollama import ChatOllama
-# llm_model = ChatOllama(model="llama3.2:3b-instruct-fp16", temperature=0.0)
+# llm_model = ChatOllama(model="gemma3:12b", temperature=0.0)
 
 
 # Openai:
-# os.enfiron["OPENAI_API_KEY"] ="YOUR KEY"
+# os.environ["OPENAI_API_KEY"] ="YOUR KEY"
 # llm_model =  ChatOpenAI(model="gpt-4o", temperature=0)
 
 # AzureOpenai:
