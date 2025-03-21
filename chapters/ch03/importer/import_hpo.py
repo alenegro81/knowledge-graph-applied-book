@@ -18,14 +18,15 @@ class HPOImporter(BaseImporter):
         super().__init__(command=__file__, argv=argv)
         self._database = "hpo"
         with self._driver.session() as session:
+            # Listing 16
             session.run(f"CREATE DATABASE {self._database} IF NOT EXISTS")
 
     def set_constraints(self):
-        # TODO: must be updated in the book
-        queries = ["CREATE CONSTRAINT n10s_unique_uri FOR (r:Resource) REQUIRE r.uri IS UNIQUE;",
-                   "CREATE CONSTRAINT IF NOT EXISTS FOR (n:Resource) REQUIRE (n.id, n.uri) IS UNIQUE;",
-                   "CREATE INDEX disease_id FOR (n:Disease) ON (n.id);",
-                   "CREATE INDEX hpo_id FOR (n:Hpo) ON (n.id);"]
+        # Listing 17
+        queries = ["CREATE CONSTRAINT n10s_unique_uri IF NOT EXISTS FOR (r:Resource) REQUIRE r.uri IS UNIQUE;",
+                   "CREATE CONSTRAINT IF NOT EXISTS FOR (n:Resource) REQUIRE (n.id) IS UNIQUE;",
+                   "CREATE INDEX disease_id IF NOT EXISTS FOR (n:HpoDisease) ON (n.id);",
+                   "CREATE INDEX phenotype_id IF NOT EXISTS FOR (n:HpoPhenotype) ON (n.id);"]
         with self._driver.session(database=self._database) as session:
             for q in queries:
                 try:
@@ -50,6 +51,7 @@ class HPOImporter(BaseImporter):
         with self._driver.session(database=self._database) as session:
             r = session.run(test_query)
             if len(r.data()) == 0:
+                # Listing 18
                 queries = ["CALL n10s.graphconfig.init();",
                            "CALL n10s.graphconfig.set({ handleVocabUris: 'IGNORE' });",
                            "CALL n10s.graphconfig.set({ applyNeo4jNaming: True });"]
@@ -60,29 +62,32 @@ class HPOImporter(BaseImporter):
                        
 
     def load_HPO_ontology(self):
+        # Listing 19
         query = """
-                CALL n10s.rdf.import.fetch("http://purl.obolibrary.org/obo/hp.owl","RDF/XML"); 
+                CALL n10s.rdf.import.fetch("http://purl.obolibrary.org/obo/hp.owl","RDF/XML");
                 """
         with self._driver.session(database=self._database) as session:
             session.run(query)
 
     def label_HPO_entities(self):
+        # Listing 20
         query = """
                 MATCH (n:Resource) 
                 WHERE n.uri STARTS WITH "http://purl.obolibrary.org/obo/HP" 
-                SET n:Hpo, 
+                SET n:HpoPhenotype, 
                     n.id = coalesce(n.id, replace(apoc.text.replace(n.uri,'(.*)obo/',''),'_', ':'));
                 """
         with self._driver.session(database=self._database) as session:
             session.run(query)
 
     def create_disease_entities(self):
+        # Listing 22
         query = """
                 LOAD CSV FROM 'https://github.com/obophenotype/human-phenotype-ontology/releases/latest/download/phenotype.hpoa' AS row 
                 FIELDTERMINATOR '\t'
                 WITH row
                 SKIP 5 
-                MERGE (dis:Resource:Disease {id: row[0]}) 
+                MERGE (dis:Resource:HpoDisease {id: row[0]}) 
                 ON CREATE SET dis.label = row[1]; 
                 """
 
@@ -90,28 +95,30 @@ class HPOImporter(BaseImporter):
             session.run(query)
 
     def create_rels_features_diseases(self):
+        # Listing 23
         query = """
-                LOAD CSV FROM 'https://github.com/obophenotype/human-phenotype-ontology/releases/latest/download/phenotype.hpoa' AS row 
-                FIELDTERMINATOR '\t' 
+                LOAD CSV FROM 'https://github.com/obophenotype/human-phenotype-ontology/releases/latest/download/phenotype.hpoa' AS row
+                FIELDTERMINATOR '\t'
                 WITH row
                 SKIP 5
-                MATCH (dis:Disease)
+                MATCH (dis:HpoDisease)
                 WHERE dis.id = row[0]
-                MATCH (phe:Hpo)
+                MATCH (phe:HpoPhenotype)
                 WHERE phe.id = row[3]
-                MERGE (dis)-[:HAS_PHENOTYPIC_FEATURE]->(phe) 
+                MERGE (dis)-[:HAS_PHENOTYPIC_FEATURE]->(phe)
                 """
 
         with self._driver.session(database=self._database) as session:
             session.run(query)
 
     def add_base_properties_to_rels(self):
+        # Listing 25
         query = """
                 LOAD CSV FROM 'https://github.com/obophenotype/human-phenotype-ontology/releases/latest/download/phenotype.hpoa' AS row 
                 FIELDTERMINATOR '\t' 
                 WITH row 
                 SKIP 5 
-                MATCH (dis:Disease)-[rel:HAS_PHENOTYPIC_FEATURE]->(phe:Hpo) 
+                MATCH (dis:HpoDisease)-[rel:HAS_PHENOTYPIC_FEATURE]->(phe:HpoPhenotype)
                 WHERE phe.id = row[3] and dis.id = row[0] 
                 FOREACH(ignoreMe IN CASE WHEN row[4] is not null THEN [1] ELSE [] END| 
                     SET rel.source = row[4]) 
@@ -127,43 +134,65 @@ class HPOImporter(BaseImporter):
                     SET rel.modifier = row[9]) 
                 FOREACH(ignoreMe IN CASE WHEN row[10] is not null THEN [1] ELSE [] END| 
                     SET rel.aspect = row[10])
+                FOREACH(ignoreMe IN CASE WHEN row[11] is not null THEN [1] ELSE [] END| 
+                    SET rel.biocuration = row[11])
                 """
 
         with self._driver.session(database=self._database) as session:
             session.run(query)
 
     def enrich_with_descriptive_properties(self):
+        # Listing 26
         query = """
-                MATCH (dis:Disease)-[rel:HAS_PHENOTYPIC_FEATURE]->(phe:Hpo) 
-                SET rel.aspect_name =  
-                CASE  
-                    WHEN rel.aspect = 'P' THEN 'Phenotypic abnormality' 
-                    WHEN rel.aspect = 'I' THEN 'Inheritance' 
-                END, 
-                rel.aspect_description = 
-                CASE 
-                    WHEN rel.aspect = 'P'  
-                    THEN 'Terms with the P aspect are located in the Phenotypic abnormality subontology' 
-                    WHEN rel.aspect = 'I'  
-                    THEN 'Terms with the I aspect are from the Inheritance subontology' 
-                END, 
-                rel.evidence_name =  
-                CASE  
-                    WHEN rel.evidence = 'IEA' THEN 'Inferred from electronic annotation' 
-                    WHEN rel.evidence = 'PCS' THEN 'Published clinical study' 
-                    WHEN rel.evidence = 'TAS' THEN 'Traceable author statement' 
-                END, 
-                rel.evidence_description = 
-                CASE 
-                    WHEN rel.evidence = 'IEA' THEN 'Annotations extracted by parsing the Clinical Features sections of the Online Mendelian Inheritance in Man resource are assigned the evidence code "IEA".' 
-                    WHEN rel.evidence = 'PCS' THEN 'PCS is used for used for information extracted from articles in the medical literature. Generally, annotations of this type will include the pubmed id of the published study in the DB_Reference field.' 
-                    WHEN rel.evidence = 'TAS' THEN 'TAS is used for information gleaned from knowledge bases such as OMIM or Orphanet that have derived the information from a published source.' 
-                END, 
-                rel.url = 
-                CASE 
-                    WHEN rel.source STARTS with 'PMID:' THEN 'https://pubmed.ncbi.nlm.nih.gov/' + apoc.text.replace(rel.source, '(.*)PMID:', '') 
-                    WHEN rel.source STARTS with 'OMIM:' THEN 'https://omim.org/entry/' + apoc.text.replace(rel.source, '(.*)OMIM:', '') 
-                END 
+                CALL apoc.periodic.iterate(
+                    "MATCH (dis:HpoDisease)-[rel:HAS_PHENOTYPIC_FEATURE]->(phe:HpoPhenotype) RETURN rel",
+                    "SET rel.createdBy = apoc.text.regexGroups(rel.biocuration, 'HPO:(\\w+)\\[')[0][1],
+                    rel.creationDate = apoc.text.regexGroups(rel.biocuration, '\\[(\\d{4}-\\d{2}-\\d{2})\\]')[0][1],
+                    rel.aspectName = 
+                    CASE  
+                        WHEN rel.aspect = 'P' THEN 'Phenotypic abnormality' 
+                        WHEN rel.aspect = 'I' THEN 'Inheritance' 
+                    END, 
+                    rel.aspectDescription = 
+                    CASE 
+                        WHEN rel.aspect = 'P' THEN 'Terms with the P aspect are located in the Phenotypic abnormality subontology' 
+                        WHEN rel.aspect = 'I' THEN 'Terms with the I aspect are from the Inheritance subontology' 
+                    END, 
+                    rel.evidenceName = 
+                    CASE  
+                        WHEN rel.evidence = 'IEA' THEN 'Inferred from electronic annotation' 
+                        WHEN rel.evidence = 'PCS' THEN 'Published clinical study' 
+                        WHEN rel.evidence = 'TAS' THEN 'Traceable author statement' 
+                    END, 
+                    rel.evidenceDescription = 
+                    CASE 
+                        WHEN rel.evidence = 'IEA' THEN 'Annotations extracted by parsing the Clinical Features sections of the Online Mendelian Inheritance in Man resource are assigned the evidence code IEA.' 
+                        WHEN rel.evidence = 'PCS' THEN 'PCS is used for information extracted from articles in the medical literature. Generally, annotations of this type will include the pubmed id of the published study in the DB_Reference field.' 
+                        WHEN rel.evidence = 'TAS' THEN 'TAS is used for information gleaned from knowledge bases such as OMIM or Orphanet that have derived the information from a published source.' 
+                    END, 
+                    rel.url = 
+                    CASE 
+                        WHEN rel.source STARTS WITH 'PMID:' THEN 'https://pubmed.ncbi.nlm.nih.gov/' + apoc.text.replace(rel.source, '(.*)PMID:', '') 
+                        WHEN rel.source STARTS WITH 'OMIM:' THEN 'https://omim.org/entry/' + apoc.text.replace(rel.source, '(.*)OMIM:', '') 
+                    END",
+                {batchSize: 1000})
+                """
+
+        with self._driver.session(database=self._database) as session:
+            session.run(query)
+    
+    def remove_unused_node(self):
+        # Listing 27
+        query = """
+                CALL apoc.periodic.iterate(
+                    "MATCH (n:Resource) RETURN id(n) as node_id",
+                    "MATCH (n)
+                     WHERE id(n) = node_id AND
+                           NOT 'HpoPhenotype' in labels(n) AND
+                           NOT 'HpoDisease' in labels(n)
+                     DETACH DELETE n",
+                     {batchSize:10000})
+                YIELD batches, total return batches, total
                 """
 
         with self._driver.session(database=self._database) as session:
@@ -174,7 +203,7 @@ if __name__ == '__main__':
     importing = HPOImporter(argv=sys.argv[1:])
     logging.info('Setting Constraints')
     importing.set_constraints()
-    logging.info('Initializing NeoSemantics')
+    logging.info('Initializing Neosemantics')
     importing.check_neo_semantics()
     importing.initialize_neo_semantics()
     logging.info('Loading HPO Ontology')
@@ -189,3 +218,5 @@ if __name__ == '__main__':
     importing.add_base_properties_to_rels()
     logging.info('Descriptive Relationship Enriching')
     importing.enrich_with_descriptive_properties()
+    logging.info('Cleaning the Knowledge Graph...')
+    importing.remove_unused_node()
