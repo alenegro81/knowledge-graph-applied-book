@@ -1,5 +1,5 @@
 MATCH (n:Document)
-WHERE exists(n.community)
+WHERE n.community is not Null
 WITH n.community AS com, collect(n) AS docs
 WHERE size(docs) > 4
 MERGE (c:Community {id: com})

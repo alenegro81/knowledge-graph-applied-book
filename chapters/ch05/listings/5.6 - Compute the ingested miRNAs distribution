@@ -4,6 +4,6 @@ WITH
  COUNT(*) as count
 RETURN
  [l in labels where  "MiRNA"<> l ] AS labels,
- Count
+ count
 ORDER by count DESC
 

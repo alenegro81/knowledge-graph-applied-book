@@ -1,4 +1,4 @@
-CALL gds.graph.create(
+CALL gds.graph.project(
   'undirectedDocs',
   'Document',
   {SIMILAR_TO: {orientation: 'UNDIRECTED', properties: 'similarity'}}
